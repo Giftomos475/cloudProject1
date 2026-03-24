@@ -6,53 +6,50 @@ SG_NAME="apache-sg"
 REGION="us-east-1"
 
 echo "Getting default VPC..."
-
 VPC_ID=$(aws ec2 describe-vpcs \
 --query "Vpcs[0].VpcId" \
 --output text \
 --region $REGION)
+echo "Default VPC: $VPC_ID"
 
-echo "Creating security group..."
-
-SG_ID=$(aws ec2 create-security-group \
---group-name $SG_NAME \
---description "Apache Lab Security Group" \
---vpc-id $VPC_ID \
---query 'GroupId' \
+#  Check if SG already exists
+SG_ID=$(aws ec2 describe-security-groups \
+--filters Name=group-name,Values=$SG_NAME \
+--query "SecurityGroups[0].GroupId" \
 --output text \
 --region $REGION)
 
+if [ "$SG_ID" == "None" ] || [ -z "$SG_ID" ]; then
+    echo "Creating security group..."
+    SG_ID=$(aws ec2 create-security-group \
+    --group-name $SG_NAME \
+    --description "Apache Lab Security Group" \
+    --vpc-id $VPC_ID \
+    --query 'GroupId' \
+    --output text \
+    --region $REGION)
+    echo "Created SG: $SG_ID"
+else
+    echo "Using existing security group: $SG_ID"
+fi
+
 echo "Adding security group rules..."
 
-aws ec2 authorize-security-group-ingress \
---group-id $SG_ID \
---protocol tcp \
---port 22 \
---cidr 0.0.0.0/0 \
---region $REGION
+# Add rules safely (ignore errors if rule already exists)
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 22 --cidr 0.0.0.0/0 --region $REGION 2>/dev/null
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 80 --cidr 0.0.0.0/0 --region $REGION 2>/dev/null
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 443 --cidr 0.0.0.0/0 --region $REGION 2>/dev/null
 
-aws ec2 authorize-security-group-ingress \
-  --group-id $SG_ID \
-  --protocol tcp \
-  --port 80 \
-  --cidr 0.0.0.0/0
-
-aws ec2 authorize-security-group-ingress \
-  --group-id $SG_ID \
-  --protocol tcp \
-  --port 443 \
-  --cidr 0.0.0.0/0
 echo "Finding latest Ubuntu AMI..."
-
 AMI_ID=$(aws ec2 describe-images \
 --owners 099720109477 \
 --filters "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*" \
 --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
 --output text \
 --region $REGION)
+echo "Using AMI: $AMI_ID"
 
 echo "Creating user data script..."
-
 cat <<EOF > userdata.sh
 #!/bin/bash
 sudo apt update -y
@@ -62,7 +59,6 @@ sudo systemctl start apache2
 EOF
 
 echo "Launching instance..."
-
 INSTANCE_ID=$(aws ec2 run-instances \
 --image-id $AMI_ID \
 --instance-type t2.micro \
@@ -75,10 +71,7 @@ INSTANCE_ID=$(aws ec2 run-instances \
 --region $REGION)
 
 echo "Waiting for instance to start..."
-
-aws ec2 wait instance-running \
---instance-ids $INSTANCE_ID \
---region $REGION
+aws ec2 wait instance-running --instance-ids $INSTANCE_ID --region $REGION
 
 PUBLIC_IP=$(aws ec2 describe-instances \
 --instance-ids $INSTANCE_ID \
