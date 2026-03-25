@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NAME="apache-yourname"
+NAME="apache-gift"
 KEY="vockey"
 SG_NAME="apache-sg"
 REGION="us-east-1"
